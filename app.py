@@ -70,10 +70,10 @@ class FloatingTaskWidget:
             padx=12,
             relief="flat",
             bd=0,
-            bg=self.accent,
-            fg="#f7fbff",
-            activebackground="#6e9abb",
-            activeforeground="#ffffff",
+            bg="#4b6f8e",
+            fg=self.text,
+            activebackground="#3e5f7a",
+            activeforeground=self.text,
         )
         add_btn.pack(side="left", padx=(8, 0))
 

@@ -34,6 +34,7 @@ class FloatingTaskWidget:
         self.history: dict[str, dict[str, object]] = {}
         self.task_time_labels: dict[int, tk.Label] = {}
         self.timer_job: str | None = None
+        self.show_completed = True
         self.default_font = ("TkDefaultFont", 11)
         self.done_font = ("TkDefaultFont", 11, "overstrike")
 
@@ -98,18 +99,18 @@ class FloatingTaskWidget:
         footer = tk.Frame(container, bg=self.bg)
         footer.pack(fill="x")
 
-        remove_btn = tk.Button(
+        self.toggle_done_btn = tk.Button(
             footer,
-            text="Clear Done",
-            command=self.remove_completed,
+            text="Hide Done",
+            command=self.toggle_completed_visibility,
             relief="flat",
             bd=0,
             padx=10,
-            bg=self.soft_green,
+            bg=self.soft_blue,
             fg=self.text,
-            activebackground="#d2e3d8",
+            activebackground="#ccdce8",
         )
-        remove_btn.pack(side="left")
+        self.toggle_done_btn.pack(side="left", padx=(8, 0))
 
         history_btn = tk.Button(
             footer,
@@ -118,9 +119,9 @@ class FloatingTaskWidget:
             relief="flat",
             bd=0,
             padx=10,
-            bg=self.soft_blue,
+            bg=self.soft_rose,
             fg=self.text,
-            activebackground="#ccdce8",
+            activebackground="#e8d5d8",
         )
         history_btn.pack(side="left", padx=(8, 0))
 
@@ -346,14 +347,11 @@ class FloatingTaskWidget:
         self.save_history()
         self.render_tasks()
 
-    def remove_completed(self) -> None:
-        before = len(self.tasks)
-        self.tasks = [t for t in self.tasks if not t["done"]]
-        removed = before - len(self.tasks)
-        self.save_tasks()
-        self.save_history()
+    def toggle_completed_visibility(self) -> None:
+        self.show_completed = not self.show_completed
+        self.toggle_done_btn.config(text=("Hide Done" if self.show_completed else "Show Done"))
         self.render_tasks()
-        self.status.config(text=f"Removed {removed} completed task(s).")
+        self.status.config(text=("Showing completed tasks." if self.show_completed else "Hiding completed tasks."))
 
     def open_history_window(self) -> None:
         win = tk.Toplevel(self.root)
@@ -445,7 +443,15 @@ class FloatingTaskWidget:
             self.refresh_timer_labels()
             return
 
-        for idx, task in enumerate(self.tasks):
+        visible_indices = [i for i, task in enumerate(self.tasks) if self.show_completed or not bool(task["done"])]
+        if not visible_indices:
+            empty = tk.Label(self.list_container, text="No visible tasks.", bg=self.panel, fg=self.muted)
+            empty.pack(anchor="w", padx=10, pady=10)
+            self.refresh_timer_labels()
+            return
+
+        for pos, idx in enumerate(visible_indices):
+            task = self.tasks[idx]
             row = tk.Frame(self.list_container, bg=self.panel, padx=8, pady=6)
             row.pack(fill="x")
             row.grid_columnconfigure(1, weight=1)
@@ -509,7 +515,7 @@ class FloatingTaskWidget:
             )
             del_btn.grid(row=0, column=3, sticky="ne", rowspan=2)
 
-            if idx < len(self.tasks) - 1:
+            if pos < len(visible_indices) - 1:
                 tk.Frame(self.list_container, bg=self.line, height=1).pack(fill="x", padx=8)
 
         self.refresh_timer_labels()

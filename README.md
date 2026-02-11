@@ -12,7 +12,7 @@ A floating desktop task widget (Tkinter) for macOS-focused daily planning with p
 - Daily history view (`History` button):
   - total time per day
   - task-level time distribution per day
-- Remove completed tasks (`Clear Done`)
+- Toggle completed task visibility (`Hide Done` / `Show Done`)
 - Floating widget behavior:
   - always on top
   - semi-transparent
@@ -55,7 +55,26 @@ python3 app.py
 3. Click `Pause` to stop timing.
 4. Click `[ ]` to mark completed (timer stops and task is struck through).
 5. Click `History` to view day-by-day breakdown.
-6. Click `Clear Done` to remove completed tasks from the current list.
+6. Click `Hide Done` to hide completed tasks, and `Show Done` to reveal them.
+
+## Build macOS App (Dock Icon)
+
+To change the Dock icon from the default Python icon to your planner icon:
+
+1. Put your icon image in this folder as `planner_icon.png`.
+2. Install PyInstaller:
+
+```bash
+python3 -m pip install pyinstaller
+```
+
+3. Build the app:
+
+```bash
+./build_macos_app.sh
+```
+
+4. Open `dist/Planner.app` (this app uses your custom Dock icon).
 
 ## Notes
 

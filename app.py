@@ -1,11 +1,30 @@
 import json
 from pathlib import Path
 import tkinter as tk
+from tkinter import filedialog
 import time
 from datetime import datetime, timedelta
+import sys
 
-DATA_FILE = Path(__file__).with_name("tasks.json")
-HISTORY_FILE = Path(__file__).with_name("history.json")
+APP_NAME = "Planner"
+
+
+def get_data_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        # Packaged app should persist data in user-space, not inside .app bundle.
+        candidate = Path.home() / "Library" / "Application Support" / APP_NAME
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            return candidate
+        except OSError:
+            pass
+    return Path(__file__).resolve().parent
+
+
+DATA_DIR = get_data_dir()
+DATA_FILE = DATA_DIR / "tasks.json"
+HISTORY_FILE = DATA_DIR / "history.json"
+ICON_FILE = Path(__file__).with_name("planner_icon.png")
 
 
 class FloatingTaskWidget:
@@ -35,8 +54,10 @@ class FloatingTaskWidget:
         self.task_time_labels: dict[int, tk.Label] = {}
         self.timer_job: str | None = None
         self.show_completed = True
+        self.icon_image: tk.PhotoImage | None = None
         self.default_font = ("TkDefaultFont", 11)
         self.done_font = ("TkDefaultFont", 11, "overstrike")
+        self.set_app_icon()
 
         container = tk.Frame(self.root, bg=self.bg, padx=10, pady=10)
         container.pack(fill="both", expand=True)
@@ -99,8 +120,14 @@ class FloatingTaskWidget:
         footer = tk.Frame(container, bg=self.bg)
         footer.pack(fill="x")
 
+        footer_row1 = tk.Frame(footer, bg=self.bg)
+        footer_row1.pack(fill="x")
+
+        footer_row2 = tk.Frame(footer, bg=self.bg)
+        footer_row2.pack(fill="x", pady=(6, 0))
+
         self.toggle_done_btn = tk.Button(
-            footer,
+            footer_row1,
             text="Hide Done",
             command=self.toggle_completed_visibility,
             relief="flat",
@@ -112,8 +139,34 @@ class FloatingTaskWidget:
         )
         self.toggle_done_btn.pack(side="left", padx=(8, 0))
 
+        import_btn = tk.Button(
+            footer_row2,
+            text="Import Data",
+            command=self.import_data,
+            relief="flat",
+            bd=0,
+            padx=10,
+            bg=self.soft_green,
+            fg=self.text,
+            activebackground="#d2e3d8",
+        )
+        import_btn.pack(side="left", padx=(8, 0))
+
+        export_btn = tk.Button(
+            footer_row2,
+            text="Export Data",
+            command=self.export_data,
+            relief="flat",
+            bd=0,
+            padx=10,
+            bg=self.soft_blue,
+            fg=self.text,
+            activebackground="#ccdce8",
+        )
+        export_btn.pack(side="left", padx=(8, 0))
+
         history_btn = tk.Button(
-            footer,
+            footer_row1,
             text="History",
             command=self.open_history_window,
             relief="flat",
@@ -141,6 +194,15 @@ class FloatingTaskWidget:
             self.root.after_cancel(self.timer_job)
             self.timer_job = None
         self.root.destroy()
+
+    def set_app_icon(self) -> None:
+        if not ICON_FILE.exists():
+            return
+        try:
+            self.icon_image = tk.PhotoImage(file=str(ICON_FILE))
+            self.root.iconphoto(True, self.icon_image)
+        except tk.TclError:
+            self.icon_image = None
 
     def start_timer_loop(self) -> None:
         self.refresh_timer_labels()
@@ -352,6 +414,90 @@ class FloatingTaskWidget:
         self.toggle_done_btn.config(text=("Hide Done" if self.show_completed else "Show Done"))
         self.render_tasks()
         self.status.config(text=("Showing completed tasks." if self.show_completed else "Hiding completed tasks."))
+
+    def import_data(self) -> None:
+        selected_files = filedialog.askopenfilenames(
+            title="Select tasks.json and/or history.json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+
+        src_tasks: Path | None = None
+        src_history: Path | None = None
+
+        for raw_path in selected_files:
+            p = Path(raw_path)
+            name = p.name.lower()
+            if name == "tasks.json":
+                src_tasks = p
+            elif name == "history.json":
+                src_history = p
+
+        if src_tasks is None and src_history is None:
+            source_dir = filedialog.askdirectory(title="Or select folder with tasks.json/history.json")
+            if not source_dir:
+                self.status.config(text="Import cancelled.")
+                return
+            src = Path(source_dir)
+            candidate_tasks = src / "tasks.json"
+            candidate_history = src / "history.json"
+            if candidate_tasks.exists():
+                src_tasks = candidate_tasks
+            if candidate_history.exists():
+                src_history = candidate_history
+
+        copied: list[str] = []
+
+        try:
+            if src_tasks is not None and src_tasks.exists():
+                DATA_FILE.write_text(src_tasks.read_text(encoding="utf-8"), encoding="utf-8")
+                copied.append("tasks")
+            if src_history is not None and src_history.exists():
+                HISTORY_FILE.write_text(src_history.read_text(encoding="utf-8"), encoding="utf-8")
+                copied.append("history")
+        except OSError:
+            self.status.config(text="Import failed: file permission error.")
+            return
+
+        if not copied:
+            self.status.config(text="No tasks.json/history.json found in selected folder.")
+            return
+
+        self.load_tasks()
+        self.load_history()
+        self.render_tasks()
+        self.status.config(text=f"Imported: {', '.join(copied)}.")
+
+    def export_data(self) -> None:
+        target_dir = filedialog.askdirectory(title="Select export folder")
+        if not target_dir:
+            self.status.config(text="Export cancelled.")
+            return
+
+        # Ensure the latest in-memory state is written before export.
+        self.save_tasks()
+        self.save_history()
+
+        dst = Path(target_dir)
+        dst_tasks = dst / "tasks.json"
+        dst_history = dst / "history.json"
+        exported: list[str] = []
+
+        try:
+            if DATA_FILE.exists():
+                dst_tasks.write_text(DATA_FILE.read_text(encoding="utf-8"), encoding="utf-8")
+                exported.append("tasks")
+            if HISTORY_FILE.exists():
+                dst_history.write_text(HISTORY_FILE.read_text(encoding="utf-8"), encoding="utf-8")
+                exported.append("history")
+        except OSError:
+            self.status.config(text="Export failed: file permission error.")
+            return
+
+        if not exported:
+            self.status.config(text="No data files available to export.")
+            return
+
+        self.status.config(text=f"Exported: {', '.join(exported)}.")
 
     def open_history_window(self) -> None:
         win = tk.Toplevel(self.root)

@@ -5,8 +5,11 @@ from tkinter import filedialog
 import time
 from datetime import datetime, timedelta
 import sys
+import random
+import math
 
 APP_NAME = "Planner"
+DAILY_GOAL_SECONDS = int(6.5 * 3600)
 
 
 def get_data_dir() -> Path:
@@ -24,6 +27,7 @@ def get_data_dir() -> Path:
 DATA_DIR = get_data_dir()
 DATA_FILE = DATA_DIR / "tasks.json"
 HISTORY_FILE = DATA_DIR / "history.json"
+ENCOURAGEMENTS_FILE = DATA_DIR / "encouragements.json"
 ICON_FILE = Path(__file__).with_name("planner_icon.png")
 
 
@@ -51,9 +55,17 @@ class FloatingTaskWidget:
 
         self.tasks: list[dict[str, object]] = []
         self.history: dict[str, dict[str, object]] = {}
+        self.encouragements: list[str] = []
         self.task_time_labels: dict[int, tk.Label] = {}
         self.timer_job: str | None = None
         self.show_completed = True
+        self.goal_reached_today = False
+        self.last_goal_date = datetime.now().strftime("%Y-%m-%d")
+        self.celebration_window: tk.Toplevel | None = None
+        self.firework_canvas: tk.Canvas | None = None
+        self.firework_job: str | None = None
+        self.firework_particles: list[dict[str, object]] = []
+        self.firework_tick = 0
         self.icon_image: tk.PhotoImage | None = None
         self.default_font = ("TkDefaultFont", 11)
         self.done_font = ("TkDefaultFont", 11, "overstrike")
@@ -110,6 +122,26 @@ class FloatingTaskWidget:
             font=("TkDefaultFont", 10, "bold"),
         )
         self.total_time_label.pack(anchor="w", pady=(0, 6))
+
+        self.today_progress_label = tk.Label(
+            container,
+            text=f"Today: 00:00:00 / {self.format_seconds(DAILY_GOAL_SECONDS)}",
+            bg=self.bg,
+            fg=self.muted,
+            font=("TkDefaultFont", 10),
+        )
+        self.today_progress_label.pack(anchor="w", pady=(0, 2))
+
+        self.goal_message_label = tk.Label(
+            container,
+            text="Keep going. Goal is 6.5 hours today.",
+            bg=self.bg,
+            fg=self.muted,
+            font=("TkDefaultFont", 10, "italic"),
+            anchor="w",
+            justify="left",
+        )
+        self.goal_message_label.pack(fill="x", pady=(0, 6))
 
         self.list_area = tk.Frame(container, bg=self.panel, relief="flat", bd=0)
         self.list_area.pack(fill="both", expand=True)
@@ -200,6 +232,7 @@ class FloatingTaskWidget:
 
         self.load_tasks()
         self.load_history()
+        self.load_encouragements()
         self.render_tasks()
         self.start_timer_loop()
         self.entry.focus_set()
@@ -213,6 +246,7 @@ class FloatingTaskWidget:
         if self.timer_job is not None:
             self.root.after_cancel(self.timer_job)
             self.timer_job = None
+        self.close_celebration_window()
         self._unbind_task_scroll()
         self.root.destroy()
 
@@ -294,6 +328,7 @@ class FloatingTaskWidget:
             if label is not None:
                 label.config(text=f"Time: {self.format_seconds(elapsed)}")
         self.total_time_label.config(text=f"Total: {self.format_seconds(total)}")
+        self.update_daily_goal_ui()
 
     def load_tasks(self) -> None:
         if not DATA_FILE.exists():
@@ -351,6 +386,216 @@ class FloatingTaskWidget:
             self.history = raw if isinstance(raw, dict) else {}
         except (json.JSONDecodeError, OSError):
             self.history = {}
+
+    def load_encouragements(self) -> None:
+        default_lines = [
+            "你今天的专注很稳，继续保持。",
+            "每一分钟投入都在累积优势。",
+            "你不是在赶时间，你是在建立能力。",
+            "达标是结果，稳定节奏才是核心。",
+            "今天的你，已经比昨天更强一点。",
+        ]
+        if not ENCOURAGEMENTS_FILE.exists():
+            self.encouragements = default_lines
+            return
+        try:
+            raw = json.loads(ENCOURAGEMENTS_FILE.read_text(encoding="utf-8"))
+            if isinstance(raw, list):
+                lines = [str(item).strip() for item in raw if str(item).strip()]
+                self.encouragements = lines if lines else default_lines
+                return
+        except (json.JSONDecodeError, OSError):
+            pass
+        self.encouragements = default_lines
+
+    def get_today_tracked_seconds(self) -> float:
+        now = datetime.now()
+        today_key = now.strftime("%Y-%m-%d")
+        today_total = float(self.history.get(today_key, {}).get("total_seconds", 0.0))
+        day_start_ts = datetime.combine(now.date(), datetime.min.time()).timestamp()
+        now_ts = self.now_ts()
+
+        for task in self.tasks:
+            if not bool(task.get("running", False)):
+                continue
+            started_at = task.get("started_at")
+            if not isinstance(started_at, (int, float)):
+                continue
+            active_start = max(float(started_at), day_start_ts)
+            today_total += max(0.0, now_ts - active_start)
+        return today_total
+
+    def update_daily_goal_ui(self) -> None:
+        today_key = datetime.now().strftime("%Y-%m-%d")
+        if today_key != self.last_goal_date:
+            self.last_goal_date = today_key
+            self.goal_reached_today = False
+            self.goal_message_label.config(
+                text="Keep going. Goal is 6.5 hours today.",
+                fg=self.muted,
+            )
+            self.today_progress_label.config(fg=self.muted)
+            self.total_time_label.config(fg=self.text)
+
+        today_seconds = self.get_today_tracked_seconds()
+        self.today_progress_label.config(
+            text=f"Today: {self.format_seconds(today_seconds)} / {self.format_seconds(DAILY_GOAL_SECONDS)}"
+        )
+
+        if today_seconds >= DAILY_GOAL_SECONDS:
+            self.today_progress_label.config(fg="#2f7d4f")
+            self.total_time_label.config(fg="#2f7d4f")
+            if not self.goal_reached_today:
+                self.goal_reached_today = True
+                message = random.choice(self.encouragements) if self.encouragements else "Great work today."
+                self.goal_message_label.config(text=f"Goal reached: {message}", fg="#2f7d4f")
+                self.open_celebration_window(message)
+        else:
+            self.today_progress_label.config(fg=self.muted)
+            self.total_time_label.config(fg=self.text)
+            if not self.goal_reached_today:
+                remaining = DAILY_GOAL_SECONDS - today_seconds
+                self.goal_message_label.config(
+                    text=f"Keep going: {self.format_seconds(remaining)} left to reach 6.5h.",
+                    fg=self.muted,
+                )
+
+    def open_celebration_window(self, message: str) -> None:
+        if self.celebration_window is not None and self.celebration_window.winfo_exists():
+            self.celebration_window.lift()
+            self.celebration_window.focus_force()
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("Goal Reached")
+        win.geometry("520x420")
+        win.minsize(460, 360)
+        win.configure(bg="#0f1a2b")
+        self.celebration_window = win
+
+        canvas = tk.Canvas(win, bg="#0f1a2b", highlightthickness=0, bd=0)
+        canvas.pack(fill="both", expand=True)
+        self.firework_canvas = canvas
+
+        panel = tk.Frame(win, bg="#1b2b45", padx=12, pady=10)
+        panel.pack(fill="x")
+
+        tk.Label(
+            panel,
+            text="Today Goal Reached (6.5h)",
+            bg="#1b2b45",
+            fg="#f8d76f",
+            font=("TkDefaultFont", 12, "bold"),
+        ).pack(anchor="w")
+
+        tk.Label(
+            panel,
+            text=message,
+            bg="#1b2b45",
+            fg="#eaf2ff",
+            font=("TkDefaultFont", 11),
+            wraplength=460,
+            justify="left",
+        ).pack(anchor="w", pady=(6, 8))
+
+        tk.Button(
+            panel,
+            text="Close",
+            command=self.close_celebration_window,
+            relief="flat",
+            bd=0,
+            padx=12,
+            bg="#f0c95a",
+            fg="#1f2a3d",
+            activebackground="#e0bc56",
+        ).pack(anchor="e")
+
+        win.protocol("WM_DELETE_WINDOW", self.close_celebration_window)
+        self.start_fireworks()
+
+    def close_celebration_window(self) -> None:
+        if self.firework_job is not None:
+            self.root.after_cancel(self.firework_job)
+            self.firework_job = None
+        self.firework_particles = []
+        self.firework_canvas = None
+        if self.celebration_window is not None and self.celebration_window.winfo_exists():
+            self.celebration_window.destroy()
+        self.celebration_window = None
+
+    def start_fireworks(self) -> None:
+        self.firework_particles = []
+        self.firework_tick = 0
+        self.animate_fireworks()
+
+    def animate_fireworks(self) -> None:
+        canvas = self.firework_canvas
+        if canvas is None or not canvas.winfo_exists():
+            self.firework_job = None
+            return
+
+        self.firework_tick += 1
+        if self.firework_tick % 10 == 1:
+            self.spawn_firework_burst()
+            if random.random() < 0.25:
+                self.spawn_firework_burst()
+
+        alive_particles: list[dict[str, object]] = []
+        for particle in self.firework_particles:
+            life = int(particle["life"]) - 1
+            if life <= 0:
+                canvas.delete(int(particle["item"]))
+                continue
+
+            x = float(particle["x"]) + float(particle["dx"])
+            y = float(particle["y"]) + float(particle["dy"])
+            dx = float(particle["dx"]) * 0.985
+            dy = float(particle["dy"]) + 0.12
+            size = max(1.0, float(particle["size"]) * 0.985)
+            item = int(particle["item"])
+            canvas.coords(item, x - size, y - size, x + size, y + size)
+
+            particle["x"] = x
+            particle["y"] = y
+            particle["dx"] = dx
+            particle["dy"] = dy
+            particle["size"] = size
+            particle["life"] = life
+            alive_particles.append(particle)
+
+        self.firework_particles = alive_particles
+        self.firework_job = self.root.after(50, self.animate_fireworks)
+
+    def spawn_firework_burst(self) -> None:
+        canvas = self.firework_canvas
+        if canvas is None or not canvas.winfo_exists():
+            return
+        w = max(1, canvas.winfo_width())
+        h = max(1, canvas.winfo_height())
+        cx = random.randint(int(w * 0.15), int(w * 0.85))
+        cy = random.randint(int(h * 0.15), int(h * 0.65))
+        colors = ["#ffdb6e", "#ff7fa8", "#7cf7ff", "#8cff9c", "#ffd1f9", "#ff9b5f"]
+        for _ in range(34):
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(2.0, 6.8)
+            size = random.uniform(1.8, 3.8)
+            x = float(cx)
+            y = float(cy)
+            dx = math.cos(angle) * speed
+            dy = math.sin(angle) * speed
+            color = random.choice(colors)
+            item = canvas.create_oval(x - size, y - size, x + size, y + size, fill=color, outline="")
+            self.firework_particles.append(
+                {
+                    "x": x,
+                    "y": y,
+                    "dx": dx,
+                    "dy": dy,
+                    "size": size,
+                    "life": random.randint(20, 34),
+                    "item": item,
+                }
+            )
 
     def pause_task(self, idx: int) -> None:
         task = self.tasks[idx]
@@ -520,6 +765,7 @@ class FloatingTaskWidget:
 
         self.load_tasks()
         self.load_history()
+        self.load_encouragements()
         self.render_tasks()
         self.status.config(text=f"Imported: {', '.join(copied)}.")
 
@@ -606,19 +852,30 @@ class FloatingTaskWidget:
             details.config(state="disabled")
             return
 
+        display_dates: list[str] = []
         for d in sorted_dates:
-            date_list.insert("end", d)
+            total_seconds = float(self.history.get(d, {}).get("total_seconds", 0.0))
+            reached = total_seconds >= DAILY_GOAL_SECONDS
+            date_list.insert("end", f"{d} {'★' if reached else ''}".rstrip())
+            display_dates.append(d)
 
         def show_selected(_event: object = None) -> None:
             sel = date_list.curselection()
             if not sel:
                 return
-            date_key = date_list.get(sel[0])
+            date_key = display_dates[sel[0]]
             day = self.history.get(date_key, {})
             total_seconds = float(day.get("total_seconds", 0.0))
             tasks = day.get("tasks", {})
+            reached = total_seconds >= DAILY_GOAL_SECONDS
 
-            lines = [f"Date: {date_key}", f"Total: {self.format_seconds(total_seconds)}", "", "Task Breakdown:"]
+            lines = [
+                f"Date: {date_key}",
+                f"Total: {self.format_seconds(total_seconds)}",
+                f"Goal 6.5h: {'Reached ★' if reached else 'Not reached'}",
+                "",
+                "Task Breakdown:",
+            ]
             if isinstance(tasks, dict) and tasks:
                 for task_name, sec in sorted(tasks.items(), key=lambda x: float(x[1]), reverse=True):
                     lines.append(f"- {task_name}: {self.format_seconds(float(sec))}")

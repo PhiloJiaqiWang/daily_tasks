@@ -1,7 +1,7 @@
 [
   {
     "text": "Tre-写论文",
-    "done": false,
+    "done": true,
     "elapsed_seconds": 10013.059095621109,
     "started_at": null,
     "running": false
@@ -9,13 +9,13 @@
   {
     "text": "Deep Learning",
     "done": false,
-    "elapsed_seconds": 0.0,
-    "started_at": null,
-    "running": false
+    "elapsed_seconds": 15357.617173433304,
+    "started_at": 1771349623.824755,
+    "running": true
   },
   {
-    "text": "Jessie Reading",
-    "done": false,
+    "text": "Reading",
+    "done": true,
     "elapsed_seconds": 8446.73320198059,
     "started_at": null,
     "running": false
@@ -23,14 +23,42 @@
   {
     "text": "Virtual Classroom Protocol",
     "done": false,
-    "elapsed_seconds": 1000.1803431510925,
+    "elapsed_seconds": 4451.0025470256805,
     "started_at": null,
     "running": false
   },
   {
     "text": "TOPSEE",
-    "done": false,
+    "done": true,
     "elapsed_seconds": 5185.615673065186,
+    "started_at": null,
+    "running": false
+  },
+  {
+    "text": "Jina Project",
+    "done": false,
+    "elapsed_seconds": 4719.747010231018,
+    "started_at": null,
+    "running": false
+  },
+  {
+    "text": "Unveil",
+    "done": false,
+    "elapsed_seconds": 16764.692577838898,
+    "started_at": null,
+    "running": false
+  },
+  {
+    "text": "AI Literacy",
+    "done": true,
+    "elapsed_seconds": 5282.85755610466,
+    "started_at": null,
+    "running": false
+  },
+  {
+    "text": "DRBOT",
+    "done": false,
+    "elapsed_seconds": 1556.4579739570618,
     "started_at": null,
     "running": false
   }

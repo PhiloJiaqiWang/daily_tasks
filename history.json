@@ -21,5 +21,45 @@
       "Jessie Reading": 446.485383,
       "Virtual Classroom Protocol": 2022.180343
     }
+  },
+  "2026-02-11": {
+    "total_seconds": 16765.279639,
+    "tasks": {
+      "Jina Project": 0.587061,
+      "Unveil": 16764.692578
+    }
+  },
+  "2026-02-12": {
+    "total_seconds": 5282.857556,
+    "tasks": {
+      "AI Literacy": 5282.857556
+    }
+  },
+  "2026-02-13": {
+    "total_seconds": 4097.3779890000005,
+    "tasks": {
+      "Jina Project": 4097.3779890000005
+    }
+  },
+  "2026-02-15": {
+    "total_seconds": 1589.2814670000002,
+    "tasks": {
+      "DRBOT": 1556.4579740000001,
+      "Deep Learning": 32.823493
+    }
+  },
+  "2026-02-16": {
+    "total_seconds": 14514.145696,
+    "tasks": {
+      "Deep Learning": 13892.363736000001,
+      "Jina Project": 621.78196
+    }
+  },
+  "2026-02-17": {
+    "total_seconds": 4883.252149,
+    "tasks": {
+      "Virtual Classroom Protocol": 3450.822204,
+      "Deep Learning": 1432.429945
+    }
   }
 }

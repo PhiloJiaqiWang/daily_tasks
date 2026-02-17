@@ -111,8 +111,28 @@ class FloatingTaskWidget:
         )
         self.total_time_label.pack(anchor="w", pady=(0, 6))
 
-        self.list_container = tk.Frame(container, bg=self.panel, relief="flat", bd=0)
-        self.list_container.pack(fill="both", expand=True)
+        self.list_area = tk.Frame(container, bg=self.panel, relief="flat", bd=0)
+        self.list_area.pack(fill="both", expand=True)
+        self.list_canvas = tk.Canvas(
+            self.list_area,
+            bg=self.panel,
+            highlightthickness=0,
+            bd=0,
+            relief="flat",
+        )
+        self.list_scrollbar = tk.Scrollbar(self.list_area, orient="vertical", command=self.list_canvas.yview)
+        self.list_canvas.configure(yscrollcommand=self.list_scrollbar.set)
+        self.list_canvas.pack(side="left", fill="both", expand=True)
+        self.list_scrollbar.pack(side="right", fill="y")
+
+        self.list_container = tk.Frame(self.list_canvas, bg=self.panel, relief="flat", bd=0)
+        self.list_canvas_window = self.list_canvas.create_window((0, 0), window=self.list_container, anchor="nw")
+        self.list_container.bind("<Configure>", self._on_task_frame_configure)
+        self.list_canvas.bind("<Configure>", self._on_task_canvas_configure)
+        self.list_area.bind("<Enter>", self._bind_task_scroll)
+        self.list_area.bind("<Leave>", self._unbind_task_scroll)
+        self.list_canvas.bind("<Enter>", self._bind_task_scroll)
+        self.list_canvas.bind("<Leave>", self._unbind_task_scroll)
 
         self.status = tk.Label(container, text="Ready", bg=self.bg, fg=self.muted, anchor="w", font=("TkDefaultFont", 10))
         self.status.pack(fill="x", pady=(6, 6))
@@ -193,6 +213,7 @@ class FloatingTaskWidget:
         if self.timer_job is not None:
             self.root.after_cancel(self.timer_job)
             self.timer_job = None
+        self._unbind_task_scroll()
         self.root.destroy()
 
     def set_app_icon(self) -> None:
@@ -207,6 +228,41 @@ class FloatingTaskWidget:
     def start_timer_loop(self) -> None:
         self.refresh_timer_labels()
         self.timer_job = self.root.after(1000, self.start_timer_loop)
+
+    def _on_task_frame_configure(self, _event: object = None) -> None:
+        self.list_canvas.configure(scrollregion=self.list_canvas.bbox("all"))
+
+    def _on_task_canvas_configure(self, event: tk.Event) -> None:
+        self.list_canvas.itemconfigure(self.list_canvas_window, width=event.width)
+
+    def _bind_task_scroll(self, _event: object = None) -> None:
+        self.root.bind_all("<MouseWheel>", self._on_task_mousewheel)
+        self.root.bind_all("<Button-4>", self._on_task_mousewheel)
+        self.root.bind_all("<Button-5>", self._on_task_mousewheel)
+
+    def _unbind_task_scroll(self, _event: object = None) -> None:
+        self.root.unbind_all("<MouseWheel>")
+        self.root.unbind_all("<Button-4>")
+        self.root.unbind_all("<Button-5>")
+
+    def _on_task_mousewheel(self, event: tk.Event) -> None:
+        step = 0
+        num = getattr(event, "num", None)
+        delta = int(getattr(event, "delta", 0))
+        if num == 4:
+            step = -1
+        elif num == 5:
+            step = 1
+        elif delta != 0:
+            if sys.platform == "darwin":
+                step = -delta
+            else:
+                step = -int(delta / 120)
+                if step == 0:
+                    step = -1 if delta > 0 else 1
+
+        if step != 0:
+            self.list_canvas.yview_scroll(step, "units")
 
     @staticmethod
     def now_ts() -> float:
@@ -586,6 +642,7 @@ class FloatingTaskWidget:
         if not self.tasks:
             empty = tk.Label(self.list_container, text="No tasks yet.", bg=self.panel, fg=self.muted)
             empty.pack(anchor="w", padx=10, pady=10)
+            self._on_task_frame_configure()
             self.refresh_timer_labels()
             return
 
@@ -593,6 +650,7 @@ class FloatingTaskWidget:
         if not visible_indices:
             empty = tk.Label(self.list_container, text="No visible tasks.", bg=self.panel, fg=self.muted)
             empty.pack(anchor="w", padx=10, pady=10)
+            self._on_task_frame_configure()
             self.refresh_timer_labels()
             return
 
@@ -664,6 +722,7 @@ class FloatingTaskWidget:
             if pos < len(visible_indices) - 1:
                 tk.Frame(self.list_container, bg=self.line, height=1).pack(fill="x", padx=8)
 
+        self._on_task_frame_configure()
         self.refresh_timer_labels()
 
 

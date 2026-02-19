@@ -56,10 +56,19 @@
     }
   },
   "2026-02-17": {
-    "total_seconds": 5201.732236999999,
+    "total_seconds": 14639.150666999998,
     "tasks": {
-      "Virtual Classroom Protocol": 3450.822204,
-      "Deep Learning": 1766.4230340000001
+      "Virtual Classroom Protocol": 5458.9475569999995,
+      "Deep Learning": 9195.716111000002
+    }
+  },
+  "2026-02-18": {
+    "total_seconds": 25895.405637999997,
+    "tasks": {
+      "Deep Learning": 6723.973413,
+      "Online Board Game IRB": 3413.837825,
+      "DRBOT": 962.4538499999999,
+      "Unveil": 14795.14055
     }
   }
 }

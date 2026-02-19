@@ -28,6 +28,8 @@ DATA_DIR = get_data_dir()
 DATA_FILE = DATA_DIR / "tasks.json"
 HISTORY_FILE = DATA_DIR / "history.json"
 ENCOURAGEMENTS_FILE = DATA_DIR / "encouragements.json"
+CARDS_DIR = DATA_DIR / "card_pool"
+CARDS_STATE_FILE = DATA_DIR / "cards_state.json"
 ICON_FILE = Path(__file__).with_name("planner_icon.png")
 
 
@@ -56,6 +58,13 @@ class FloatingTaskWidget:
         self.tasks: list[dict[str, object]] = []
         self.history: dict[str, dict[str, object]] = {}
         self.encouragements: list[str] = []
+        self.card_state: dict[str, object] = {"unlocked": [], "awarded_dates": {}}
+        self.card_images_cache: dict[str, tk.PhotoImage] = {}
+        self.library_window: tk.Toplevel | None = None
+        self.library_items_frame: tk.Frame | None = None
+        self.library_count_label: tk.Label | None = None
+        self.library_reflow_job: str | None = None
+        self.preview_window: tk.Toplevel | None = None
         self.task_time_labels: dict[int, tk.Label] = {}
         self.timer_job: str | None = None
         self.show_completed = True
@@ -230,9 +239,24 @@ class FloatingTaskWidget:
         )
         history_btn.pack(side="left", padx=(8, 0))
 
+        library_btn = tk.Button(
+            footer_row1,
+            text="Library",
+            command=self.open_library_window,
+            relief="flat",
+            bd=0,
+            padx=10,
+            bg="#e8f2dc",
+            fg=self.text,
+            activebackground="#dbeac8",
+        )
+        library_btn.pack(side="left", padx=(8, 0))
+
         self.load_tasks()
         self.load_history()
         self.load_encouragements()
+        self.ensure_cards_dir()
+        self.load_card_state()
         self.render_tasks()
         self.start_timer_loop()
         self.entry.focus_set()
@@ -246,6 +270,13 @@ class FloatingTaskWidget:
         if self.timer_job is not None:
             self.root.after_cancel(self.timer_job)
             self.timer_job = None
+        if self.library_reflow_job is not None:
+            self.root.after_cancel(self.library_reflow_job)
+            self.library_reflow_job = None
+        self.close_preview_window()
+        if self.library_window is not None and self.library_window.winfo_exists():
+            self.library_window.destroy()
+        self.library_window = None
         self.close_celebration_window()
         self._unbind_task_scroll()
         self.root.destroy()
@@ -408,6 +439,85 @@ class FloatingTaskWidget:
             pass
         self.encouragements = default_lines
 
+    def ensure_cards_dir(self) -> None:
+        try:
+            CARDS_DIR.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+
+    def load_card_state(self) -> None:
+        default_state: dict[str, object] = {"unlocked": [], "awarded_dates": {}}
+        if not CARDS_STATE_FILE.exists():
+            self.card_state = default_state
+            return
+
+        try:
+            raw = json.loads(CARDS_STATE_FILE.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                self.card_state = default_state
+                return
+            unlocked = raw.get("unlocked", [])
+            awarded_dates = raw.get("awarded_dates", {})
+            if not isinstance(unlocked, list) or not isinstance(awarded_dates, dict):
+                self.card_state = default_state
+                return
+            clean_unlocked = [str(x) for x in unlocked if str(x).strip()]
+            clean_awarded_dates: dict[str, str] = {}
+            for key, value in awarded_dates.items():
+                k = str(key).strip()
+                v = str(value).strip()
+                if k and v:
+                    clean_awarded_dates[k] = v
+            self.card_state = {"unlocked": clean_unlocked, "awarded_dates": clean_awarded_dates}
+        except (json.JSONDecodeError, OSError):
+            self.card_state = default_state
+
+    def save_card_state(self) -> None:
+        try:
+            CARDS_STATE_FILE.write_text(json.dumps(self.card_state, indent=2, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
+
+    def get_card_pool(self) -> list[str]:
+        exts = {".png", ".gif", ".jpg", ".jpeg", ".bmp", ".webp"}
+        try:
+            files = [p.name for p in CARDS_DIR.iterdir() if p.is_file() and p.suffix.lower() in exts]
+            return sorted(files)
+        except OSError:
+            return []
+
+    def award_daily_card(self, date_key: str) -> str:
+        pool = self.get_card_pool()
+        if not pool:
+            return f"Card folder is empty: {CARDS_DIR}"
+
+        unlocked_raw = self.card_state.get("unlocked", [])
+        unlocked = {str(x) for x in unlocked_raw if str(x).strip()}
+        awarded_dates = self.card_state.get("awarded_dates", {})
+        if isinstance(awarded_dates, dict):
+            existing = awarded_dates.get(date_key)
+            if isinstance(existing, str) and existing.strip():
+                return f"Today's card: {existing}"
+
+        remaining = [name for name in pool if name not in unlocked]
+        if not remaining:
+            if isinstance(awarded_dates, dict):
+                awarded_dates[date_key] = "All cards collected"
+            self.card_state["awarded_dates"] = awarded_dates
+            self.save_card_state()
+            self.render_library_cards()
+            return "All cards are already collected."
+
+        picked = random.choice(remaining)
+        unlocked.add(picked)
+        self.card_state["unlocked"] = sorted(unlocked)
+        if isinstance(awarded_dates, dict):
+            awarded_dates[date_key] = picked
+        self.card_state["awarded_dates"] = awarded_dates
+        self.save_card_state()
+        self.render_library_cards()
+        return f"New card unlocked: {picked}"
+
     def get_today_tracked_seconds(self) -> float:
         now = datetime.now()
         today_key = now.strftime("%Y-%m-%d")
@@ -449,7 +559,8 @@ class FloatingTaskWidget:
                 self.goal_reached_today = True
                 message = random.choice(self.encouragements) if self.encouragements else "Great work today."
                 self.goal_message_label.config(text=f"Goal reached: {message}", fg="#2f7d4f")
-                self.open_celebration_window(message)
+                reward_text = self.award_daily_card(today_key)
+                self.open_celebration_window(message, reward_text)
         else:
             self.today_progress_label.config(fg=self.muted)
             self.total_time_label.config(fg=self.text)
@@ -460,7 +571,7 @@ class FloatingTaskWidget:
                     fg=self.muted,
                 )
 
-    def open_celebration_window(self, message: str) -> None:
+    def open_celebration_window(self, message: str, reward_text: str) -> None:
         if self.celebration_window is not None and self.celebration_window.winfo_exists():
             self.celebration_window.lift()
             self.celebration_window.focus_force()
@@ -497,6 +608,16 @@ class FloatingTaskWidget:
             wraplength=460,
             justify="left",
         ).pack(anchor="w", pady=(6, 8))
+
+        tk.Label(
+            panel,
+            text=reward_text,
+            bg="#1b2b45",
+            fg="#8cf2bc",
+            font=("TkDefaultFont", 11, "bold"),
+            wraplength=460,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 8))
 
         tk.Button(
             panel,
@@ -800,6 +921,344 @@ class FloatingTaskWidget:
             return
 
         self.status.config(text=f"Exported: {', '.join(exported)}.")
+
+    def load_card_thumbnail(self, card_name: str, max_w: int, max_h: int) -> tk.PhotoImage | None:
+        img_path = CARDS_DIR / card_name
+        cache_key = f"{img_path}:{max_w}x{max_h}"
+        if cache_key in self.card_images_cache:
+            return self.card_images_cache[cache_key]
+
+        img: tk.PhotoImage | None = None
+        try:
+            from PIL import Image, ImageTk  # type: ignore
+
+            with Image.open(img_path) as pil_img:
+                pil_copy = pil_img.copy()
+                pil_copy.thumbnail((max_w, max_h))
+            img = ImageTk.PhotoImage(pil_copy)
+        except Exception:
+            try:
+                raw = tk.PhotoImage(file=str(img_path))
+                w = max(1, raw.width())
+                h = max(1, raw.height())
+                sx = max(1, math.ceil(w / max_w))
+                sy = max(1, math.ceil(h / max_h))
+                img = raw.subsample(sx, sy)
+            except tk.TclError:
+                img = None
+
+        if img is not None:
+            self.card_images_cache[cache_key] = img
+        return img
+
+    def refresh_library_summary(self) -> None:
+        if self.library_count_label is None or not self.library_count_label.winfo_exists():
+            return
+        pool = self.get_card_pool()
+        unlocked_raw = self.card_state.get("unlocked", [])
+        unlocked = [x for x in unlocked_raw if isinstance(x, str)]
+        owned = len([x for x in unlocked if x in pool])
+        total = len(pool)
+        self.library_count_label.config(text=f"Collected {owned} / {total}")
+
+    def render_library_cards(self) -> None:
+        if self.library_items_frame is None or not self.library_items_frame.winfo_exists():
+            return
+
+        frame = self.library_items_frame
+        for child in frame.winfo_children():
+            child.destroy()
+
+        pool = self.get_card_pool()
+        unlocked_raw = self.card_state.get("unlocked", [])
+        unlocked = {str(x) for x in unlocked_raw if str(x).strip()}
+        ordered = sorted(pool, key=lambda x: (x not in unlocked, x.lower()))
+
+        if not ordered:
+            hint = tk.Label(
+                frame,
+                text=f"No card images yet.\nPut images into:\n{CARDS_DIR}",
+                bg="#f6f9ef",
+                fg="#5f6f52",
+                justify="center",
+                padx=16,
+                pady=24,
+            )
+            hint.grid(row=0, column=0, padx=12, pady=12, sticky="nsew")
+            self.refresh_library_summary()
+            return
+
+        viewport_w = frame.winfo_width()
+        if viewport_w <= 0:
+            viewport_w = 860
+        if viewport_w >= 1180:
+            columns = 4
+        elif viewport_w >= 820:
+            columns = 3
+        else:
+            columns = 2
+
+        column_frames: list[tk.Frame] = []
+        column_heights = [0 for _ in range(columns)]
+        for i in range(columns):
+            frame.grid_columnconfigure(i, weight=1, uniform="libcol")
+            col = tk.Frame(frame, bg="#f6f9ef")
+            col.grid(row=0, column=i, sticky="n", padx=6)
+            column_frames.append(col)
+
+        thumb_w = 220
+
+        for idx, card_name in enumerate(ordered):
+            owned = card_name in unlocked
+
+            target_col = min(range(columns), key=lambda i: column_heights[i])
+            parent_col = column_frames[target_col]
+            card = tk.Frame(
+                parent_col,
+                bg=("#fffdf4" if owned else "#ececec"),
+                highlightthickness=1,
+                highlightbackground=("#e7d78f" if owned else "#d4d4d4"),
+                bd=0,
+                padx=8,
+                pady=8,
+                cursor=("hand2" if owned else "arrow"),
+            )
+            card.pack(fill="x", pady=8)
+
+            if owned:
+                # Keep original aspect ratio to create a Pinterest-like masonry wall.
+                thumb = self.load_card_thumbnail(card_name, thumb_w, 360)
+            else:
+                thumb = None
+
+            if thumb is not None and owned:
+                img_label = tk.Label(card, image=thumb, bg="#fffdf4")
+                img_label.image = thumb
+                img_label.pack(anchor="center")
+                preview_h = max(120, thumb.height())
+            else:
+                placeholder = tk.Canvas(
+                    card,
+                    width=thumb_w,
+                    height=140,
+                    bg=("#f8f1ce" if owned else "#d7d7d7"),
+                    highlightthickness=0,
+                    bd=0,
+                )
+                placeholder.create_text(
+                    100,
+                    65,
+                    text=("Preview unavailable" if owned else "Locked"),
+                    fill=("#6a613f" if owned else "#777777"),
+                    font=("TkDefaultFont", 11, "bold"),
+                )
+                placeholder.pack(anchor="center")
+                preview_h = 140
+
+            name_label = tk.Label(
+                card,
+                text=card_name,
+                bg=("#fffdf4" if owned else "#ececec"),
+                fg=("#3f4f63" if owned else "#777777"),
+                anchor="w",
+                wraplength=thumb_w - 10,
+                justify="left",
+                font=("TkDefaultFont", 10, "bold"),
+            )
+            name_label.pack(fill="x", pady=(8, 2))
+
+            state_label = tk.Label(
+                card,
+                text=("Collected" if owned else "Not collected"),
+                bg=("#f8edbd" if owned else "#dedede"),
+                fg=("#5a4f1c" if owned else "#666666"),
+                padx=6,
+                pady=2,
+                font=("TkDefaultFont", 9),
+            )
+            state_label.pack(anchor="w")
+
+            column_heights[target_col] += preview_h + 88
+
+            if owned:
+                hover_bg = "#f9f2d5"
+                normal_bg = "#fffdf4"
+
+                def on_enter(_event: object, c=card, n=name_label) -> None:
+                    c.config(bg=hover_bg, highlightbackground="#d8c270")
+                    n.config(bg=hover_bg)
+
+                def on_leave(_event: object, c=card, n=name_label) -> None:
+                    c.config(bg=normal_bg, highlightbackground="#e7d78f")
+                    n.config(bg=normal_bg)
+
+                def on_click(_event: object, name=card_name) -> None:
+                    self.open_card_preview(name)
+
+                bind_widgets: list[tk.Widget] = [card, name_label, state_label]
+                if thumb is not None:
+                    bind_widgets.append(img_label)
+                else:
+                    bind_widgets.append(placeholder)
+                for widget in bind_widgets:
+                    widget.bind("<Enter>", on_enter)
+                    widget.bind("<Leave>", on_leave)
+                    widget.bind("<Button-1>", on_click)
+
+        self.refresh_library_summary()
+
+    def open_card_preview(self, card_name: str) -> None:
+        self.close_preview_window()
+        win = tk.Toplevel(self.root)
+        win.title(f"Card - {card_name}")
+        win.geometry("620x520")
+        win.minsize(460, 360)
+        win.configure(bg="#131f30")
+        self.preview_window = win
+
+        body = tk.Frame(win, bg="#131f30", padx=12, pady=12)
+        body.pack(fill="both", expand=True)
+
+        img = self.load_card_thumbnail(card_name, 560, 400)
+        if img is not None:
+            img_label = tk.Label(body, image=img, bg="#131f30")
+            img_label.image = img
+            img_label.pack(fill="both", expand=True)
+        else:
+            fallback = tk.Label(
+                body,
+                text="Preview unavailable.\nInstall Pillow for broader image support.",
+                bg="#243650",
+                fg="#eaf2ff",
+                pady=40,
+            )
+            fallback.pack(fill="both", expand=True)
+
+        info = tk.Frame(win, bg="#1d314a", padx=12, pady=8)
+        info.pack(fill="x")
+        tk.Label(
+            info,
+            text=card_name,
+            bg="#1d314a",
+            fg="#f4d981",
+            font=("TkDefaultFont", 11, "bold"),
+            anchor="w",
+        ).pack(side="left")
+        tk.Button(
+            info,
+            text="Close",
+            command=self.close_preview_window,
+            relief="flat",
+            bd=0,
+            padx=10,
+            bg="#efc95a",
+            fg="#263247",
+        ).pack(side="right")
+
+        win.protocol("WM_DELETE_WINDOW", self.close_preview_window)
+
+    def close_preview_window(self) -> None:
+        if self.preview_window is not None and self.preview_window.winfo_exists():
+            self.preview_window.destroy()
+        self.preview_window = None
+
+    def open_library_window(self) -> None:
+        if self.library_window is not None and self.library_window.winfo_exists():
+            self.library_window.lift()
+            self.library_window.focus_force()
+            self.render_library_cards()
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("Card Library")
+        win.geometry("860x620")
+        win.minsize(700, 460)
+        win.configure(bg="#eaf1df")
+        self.library_window = win
+
+        header = tk.Frame(win, bg="#314a36", padx=14, pady=10)
+        header.pack(fill="x")
+        tk.Label(
+            header,
+            text="Card Library",
+            bg="#314a36",
+            fg="#f9f3d3",
+            font=("TkDefaultFont", 14, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            header,
+            text=f"Card folder: {CARDS_DIR}",
+            bg="#314a36",
+            fg="#dcead7",
+            font=("TkDefaultFont", 9),
+            wraplength=820,
+            justify="left",
+        ).pack(anchor="w", pady=(2, 0))
+
+        toolbar = tk.Frame(win, bg="#dce8ce", padx=12, pady=8)
+        toolbar.pack(fill="x")
+        self.library_count_label = tk.Label(
+            toolbar,
+            text="Collected 0 / 0",
+            bg="#dce8ce",
+            fg="#2b4531",
+            font=("TkDefaultFont", 11, "bold"),
+        )
+        self.library_count_label.pack(side="left")
+
+        tk.Button(
+            toolbar,
+            text="Refresh",
+            command=self.render_library_cards,
+            relief="flat",
+            bd=0,
+            padx=10,
+            bg="#f5e6b3",
+            fg="#4a3a17",
+            activebackground="#e8d695",
+        ).pack(side="right")
+
+        body = tk.Frame(win, bg="#eaf1df")
+        body.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        canvas = tk.Canvas(body, bg="#f6f9ef", highlightthickness=0, bd=0)
+        scrollbar = tk.Scrollbar(body, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        items_frame = tk.Frame(canvas, bg="#f6f9ef")
+        canvas_window = canvas.create_window((0, 0), window=items_frame, anchor="nw")
+        self.library_items_frame = items_frame
+
+        def _on_items_configure(_event: object = None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event: tk.Event) -> None:
+            canvas.itemconfigure(canvas_window, width=event.width)
+
+        items_frame.bind("<Configure>", _on_items_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+        canvas.bind("<Configure>", self._schedule_library_reflow, add="+")
+
+        self.render_library_cards()
+        win.protocol("WM_DELETE_WINDOW", self._on_close_library_window)
+
+    def _schedule_library_reflow(self, _event: object = None) -> None:
+        if self.library_reflow_job is not None:
+            self.root.after_cancel(self.library_reflow_job)
+        self.library_reflow_job = self.root.after(120, self.render_library_cards)
+
+    def _on_close_library_window(self) -> None:
+        if self.library_reflow_job is not None:
+            self.root.after_cancel(self.library_reflow_job)
+            self.library_reflow_job = None
+        self.close_preview_window()
+        if self.library_window is not None and self.library_window.winfo_exists():
+            self.library_window.destroy()
+        self.library_window = None
+        self.library_items_frame = None
+        self.library_count_label = None
 
     def open_history_window(self) -> None:
         win = tk.Toplevel(self.root)

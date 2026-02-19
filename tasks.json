@@ -8,10 +8,10 @@
   },
   {
     "text": "Deep Learning",
-    "done": false,
-    "elapsed_seconds": 15691.610262393951,
-    "started_at": 1771351332.1917498,
-    "running": true
+    "done": true,
+    "elapsed_seconds": 29844.876752376556,
+    "started_at": null,
+    "running": false
   },
   {
     "text": "Reading",
@@ -22,8 +22,8 @@
   },
   {
     "text": "Virtual Classroom Protocol",
-    "done": false,
-    "elapsed_seconds": 4451.0025470256805,
+    "done": true,
+    "elapsed_seconds": 6459.127899885178,
     "started_at": null,
     "running": false
   },
@@ -43,8 +43,8 @@
   },
   {
     "text": "Unveil",
-    "done": false,
-    "elapsed_seconds": 16764.692577838898,
+    "done": true,
+    "elapsed_seconds": 31559.833127975464,
     "started_at": null,
     "running": false
   },
@@ -58,7 +58,21 @@
   {
     "text": "DRBOT",
     "done": false,
-    "elapsed_seconds": 1556.4579739570618,
+    "elapsed_seconds": 2518.911823987961,
+    "started_at": null,
+    "running": false
+  },
+  {
+    "text": "Online Board Game IRB",
+    "done": true,
+    "elapsed_seconds": 3413.8378250598907,
+    "started_at": null,
+    "running": false
+  },
+  {
+    "text": "Field Exam",
+    "done": false,
+    "elapsed_seconds": 0.0,
     "started_at": null,
     "running": false
   }

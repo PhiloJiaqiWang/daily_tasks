@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import sys
 import random
 import math
+import uuid
 
 APP_NAME = "Planner"
 DAILY_GOAL_SECONDS = int(6.5 * 3600)
@@ -65,6 +66,8 @@ class FloatingTaskWidget:
         self.library_count_label: tk.Label | None = None
         self.library_reflow_job: str | None = None
         self.preview_window: tk.Toplevel | None = None
+        self.note_windows: dict[str, tk.Toplevel] = {}
+        self.note_text_widgets: dict[str, tk.Text] = {}
         self.task_time_labels: dict[int, tk.Label] = {}
         self.timer_job: str | None = None
         self.show_completed = True
@@ -120,7 +123,12 @@ class FloatingTaskWidget:
         )
         add_btn.pack(side="left", padx=(8, 0))
 
-        hint = tk.Label(container, text="Enter to add. Click [ ] to complete.", bg=self.bg, fg=self.muted)
+        hint = tk.Label(
+            container,
+            text="Enter to add. Click [ ] to complete. Click task title to open memo.",
+            bg=self.bg,
+            fg=self.muted,
+        )
         hint.pack(anchor="w", pady=(0, 6))
 
         self.total_time_label = tk.Label(
@@ -273,6 +281,7 @@ class FloatingTaskWidget:
         if self.library_reflow_job is not None:
             self.root.after_cancel(self.library_reflow_job)
             self.library_reflow_job = None
+        self.close_all_note_windows()
         self.close_preview_window()
         if self.library_window is not None and self.library_window.winfo_exists():
             self.library_window.destroy()
@@ -341,6 +350,10 @@ class FloatingTaskWidget:
         seconds = total % 60
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
+    @staticmethod
+    def generate_task_id() -> str:
+        return uuid.uuid4().hex
+
     def task_elapsed_seconds(self, task: dict[str, object]) -> float:
         elapsed = float(task.get("elapsed_seconds", 0))
         if not bool(task.get("running", False)):
@@ -377,6 +390,7 @@ class FloatingTaskWidget:
             return
 
         cleaned: list[dict[str, object]] = []
+        used_ids: set[str] = set()
         for item in raw:
             if isinstance(item, dict) and isinstance(item.get("text"), str):
                 txt = item["text"].strip()
@@ -397,13 +411,24 @@ class FloatingTaskWidget:
                         elapsed_seconds += max(0, self.now_ts() - float(started_raw))
                         started_at = None
 
+                    raw_id = item.get("id")
+                    task_id = str(raw_id).strip() if isinstance(raw_id, str) else ""
+                    if not task_id or task_id in used_ids:
+                        task_id = self.generate_task_id()
+                    used_ids.add(task_id)
+
+                    raw_note = item.get("note", "")
+                    note = str(raw_note) if isinstance(raw_note, str) else ""
+
                     cleaned.append(
                         {
+                            "id": task_id,
                             "text": txt,
                             "done": done,
                             "elapsed_seconds": elapsed_seconds,
                             "started_at": started_at,
                             "running": running,
+                            "note": note,
                         }
                     )
         self.tasks = cleaned
@@ -787,6 +812,134 @@ class FloatingTaskWidget:
         except OSError:
             pass
 
+    def find_task_index_by_id(self, task_id: str) -> int | None:
+        for idx, task in enumerate(self.tasks):
+            if str(task.get("id", "")) == task_id:
+                return idx
+        return None
+
+    def task_has_note(self, task: dict[str, object]) -> bool:
+        return bool(str(task.get("note", "")).strip())
+
+    def open_task_note_window(self, task_id: str) -> None:
+        existing = self.note_windows.get(task_id)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            existing.focus_force()
+            return
+
+        idx = self.find_task_index_by_id(task_id)
+        if idx is None:
+            self.status.config(text="Task not found.")
+            return
+        task = self.tasks[idx]
+        task_name = str(task.get("text", "Untitled Task"))
+
+        win = tk.Toplevel(self.root)
+        win.title(f"Memo - {task_name}")
+        win.geometry("560x440")
+        win.minsize(420, 320)
+        win.configure(bg="#f5f1e8")
+
+        wrap = tk.Frame(win, bg="#f5f1e8", padx=12, pady=12)
+        wrap.pack(fill="both", expand=True)
+
+        tk.Label(
+            wrap,
+            text=task_name,
+            bg="#f5f1e8",
+            fg=self.text,
+            anchor="w",
+            font=("TkDefaultFont", 12, "bold"),
+            wraplength=520,
+            justify="left",
+        ).pack(fill="x", pady=(0, 8))
+
+        text_widget = tk.Text(
+            wrap,
+            wrap="word",
+            bg="#fffdf8",
+            fg=self.text,
+            relief="flat",
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=self.line,
+            insertbackground=self.text,
+            padx=8,
+            pady=8,
+            undo=True,
+        )
+        text_widget.pack(fill="both", expand=True)
+        text_widget.insert("1.0", str(task.get("note", "")))
+        text_widget.focus_set()
+
+        footer = tk.Frame(wrap, bg="#f5f1e8")
+        footer.pack(fill="x", pady=(8, 0))
+        tk.Label(
+            footer,
+            text="Tip: Cmd/Ctrl+S to save",
+            bg="#f5f1e8",
+            fg=self.muted,
+            anchor="w",
+        ).pack(side="left")
+        tk.Button(
+            footer,
+            text="Save",
+            command=lambda t_id=task_id: self.save_task_note(t_id),
+            relief="flat",
+            bd=0,
+            padx=10,
+            bg=self.soft_blue,
+            fg=self.text,
+            activebackground="#ccdce8",
+        ).pack(side="right")
+        tk.Button(
+            footer,
+            text="Close",
+            command=lambda t_id=task_id: self.close_task_note_window(t_id, save=True),
+            relief="flat",
+            bd=0,
+            padx=10,
+            bg=self.soft_rose,
+            fg=self.text,
+            activebackground="#e8d5d8",
+        ).pack(side="right", padx=(0, 6))
+
+        win.bind("<Command-s>", lambda _event, t_id=task_id: self.save_task_note(t_id))
+        win.bind("<Control-s>", lambda _event, t_id=task_id: self.save_task_note(t_id))
+        win.protocol("WM_DELETE_WINDOW", lambda t_id=task_id: self.close_task_note_window(t_id, save=True))
+
+        self.note_windows[task_id] = win
+        self.note_text_widgets[task_id] = text_widget
+        self.status.config(text=f'Opened memo: "{task_name}"')
+
+    def save_task_note(self, task_id: str) -> None:
+        text_widget = self.note_text_widgets.get(task_id)
+        if text_widget is None or not text_widget.winfo_exists():
+            return
+        idx = self.find_task_index_by_id(task_id)
+        if idx is None:
+            return
+        note_text = text_widget.get("1.0", "end-1c")
+        self.tasks[idx]["note"] = note_text
+        self.save_tasks()
+        self.render_tasks()
+        self.status.config(text=f'Saved memo: "{self.tasks[idx]["text"]}"')
+
+    def close_task_note_window(self, task_id: str, save: bool) -> None:
+        if save:
+            self.save_task_note(task_id)
+        text_widget = self.note_text_widgets.pop(task_id, None)
+        if text_widget is not None and text_widget.winfo_exists():
+            text_widget.destroy()
+        win = self.note_windows.pop(task_id, None)
+        if win is not None and win.winfo_exists():
+            win.destroy()
+
+    def close_all_note_windows(self) -> None:
+        for task_id in list(self.note_windows.keys()):
+            self.close_task_note_window(task_id, save=True)
+
     def add_task(self) -> None:
         text = self.task_var.get().strip()
         if not text:
@@ -795,11 +948,13 @@ class FloatingTaskWidget:
 
         self.tasks.append(
             {
+                "id": self.generate_task_id(),
                 "text": text,
                 "done": False,
                 "elapsed_seconds": 0.0,
                 "started_at": None,
                 "running": False,
+                "note": "",
             }
         )
         self.task_var.set("")
@@ -825,6 +980,9 @@ class FloatingTaskWidget:
         self.render_tasks()
 
     def delete_task(self, idx: int) -> None:
+        task_id = str(self.tasks[idx].get("id", ""))
+        if task_id:
+            self.close_task_note_window(task_id, save=False)
         self.pause_task(idx)
         self.tasks.pop(idx)
         self.save_tasks()
@@ -1372,6 +1530,7 @@ class FloatingTaskWidget:
 
         for pos, idx in enumerate(visible_indices):
             task = self.tasks[idx]
+            task_id = str(task.get("id", ""))
             row = tk.Frame(self.list_container, bg=self.panel, padx=8, pady=6)
             row.pack(fill="x")
             row.grid_columnconfigure(1, weight=1)
@@ -1400,9 +1559,10 @@ class FloatingTaskWidget:
                 fg=(self.muted if done else self.text),
                 font=(self.done_font if done else self.default_font),
                 anchor="w",
+                cursor="hand2",
             )
             label.grid(row=0, column=1, sticky="ew", padx=(8, 8))
-            label.bind("<Button-1>", lambda _event, i=idx: self.toggle_task(i))
+            label.bind("<Button-1>", lambda _event, t_id=task_id: self.open_task_note_window(t_id))
 
             timer_label = tk.Label(row, text="", bg=self.panel, fg=self.muted, anchor="w", font=("TkDefaultFont", 10))
             timer_label.grid(row=1, column=1, sticky="w", padx=(8, 8))

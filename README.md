@@ -1,83 +1,114 @@
-# Daily Tasks Widget
+# Planner (Daily Tasks + Rewards)
 
-A floating desktop task widget (Tkinter) for macOS-focused daily planning with per-task timing and history tracking.
+A floating Tkinter planner focused on daily execution, time tracking, and motivation loops.
 
-## Features
+## Current Features
 
-- Add tasks for the day
-- Mark tasks complete with strikethrough (`[ ]` / `[x]`)
-- Start/Pause per-task timer (manual start; add does not auto-start)
+### Task + Time Tracking
+- Add daily tasks
+- Start/Pause timer per task
 - Auto-pause other running tasks when starting a new one
-- Total accumulated time across all tasks
-- Daily history view (`History` button):
-  - total time per day
-  - task-level time distribution per day
-- Toggle completed task visibility (`Hide Done` / `Show Done`)
-- Floating widget behavior:
-  - always on top
-  - semi-transparent
-- Monet-inspired custom UI theme
+- Mark complete with `[ ]` / `[x]`
+- Hide/Show completed tasks
+- Total tracked time across all tasks
+
+### Task Memo (Per Task Notes)
+- Click a task title to open a memo-style editor window
+- Notes are saved to that specific task
+- `Cmd+S` / `Ctrl+S` support in memo window
+- Memo auto-saves on memo close / app close
+
+### Motivation System (Step Goals)
+- Daily milestone ladder:
+  - `2h`: startup success
+  - `5h`: strong progress
+  - `6.5h`: full goal
+- Dynamic progress text/status based on current milestone
+- Full goal (`6.5h`) still triggers celebration flow
+
+### Celebration + Encouragement
+- Fireworks popup on first full-goal completion of the day
+- Random encouragement message from `encouragements.json`
+- Popup can be manually closed
+
+### Card Rewards + Library
+- On first daily `6.5h` completion, unlock 1 random non-duplicate card
+- Card pool is loaded from `card_pool/`
+- Collection state persisted in `cards_state.json`
+- Dedicated `Library` window with:
+  - masonry/Pinterest-like thumbnail layout
+  - responsive column count
+  - hover interaction
+  - click-to-preview card viewer
+
+### History + Data
+- `History` window shows per-day total + task breakdown
+- Days that hit `6.5h` show a star (`★`)
+- Import/Export `tasks.json` and `history.json`
 
 ## Data Files
 
-The app stores data in the project folder:
+When running from source (`python app.py`), data is stored in this project folder.
 
-- `tasks.json`: current task list and live timer state
-- `history.json`: historical time records by date
+When running packaged app (`Planner.app`), data is stored in:
+`~/Library/Application Support/Planner`
+
+Main files:
+- `tasks.json`: task list, timer state, task memo content
+- `history.json`: per-day tracked time records
+- `encouragements.json`: random encouragement text pool
+- `cards_state.json`: unlocked cards + per-day card awards
+- `card_pool/`: your collectible card image folder
 
 ## Requirements
 
-- Python 3.10+ (recommended: Python 3.12)
-- Tkinter available in your Python environment
+- Python `3.10+` (recommended `3.12`)
+- Tkinter available
 
-For macOS, if your default Python has old Tk (for example Tk 8.5), use Homebrew Python:
+Optional but recommended:
+- Pillow (`pip install pillow`) for broader image format support and better card thumbnail handling
 
-```bash
-brew install python@3.12 python-tk@3.12
-```
-
-Then run with:
+## Run
 
 ```bash
 /opt/homebrew/bin/python3.12 app.py
 ```
 
-If your `python3` already points to a modern Tk build, this also works:
+Or:
 
 ```bash
 python3 app.py
 ```
 
-## Usage
+## Card Setup
 
-1. Type a task and click `Add` (or press Enter).
-2. Click `Start` to begin timing that task.
-3. Click `Pause` to stop timing.
-4. Click `[ ]` to mark completed (timer stops and task is struck through).
-5. Click `History` to view day-by-day breakdown.
-6. Click `Hide Done` to hide completed tasks, and `Show Done` to reveal them.
+1. Put card images into `card_pool/`
+2. Supported extensions: `.png`, `.gif`, `.jpg`, `.jpeg`, `.bmp`, `.webp`
+3. Reach daily `6.5h` to unlock one random new card
 
-## Build macOS App (Dock Icon)
-
-To change the Dock icon from the default Python icon to your planner icon:
-
-1. Put your icon image in this folder as `planner_icon.png`.
-2. Install PyInstaller:
+## Build macOS App
 
 ```bash
 python3 -m pip install pyinstaller
-```
-
-3. Build the app:
-
-```bash
 ./build_macos_app.sh
 ```
 
-4. Open `dist/Planner.app` (this app uses your custom Dock icon).
+Built app output:
+- `dist/Planner.app`
 
-## Notes
+## Update Progress
 
-- Timing is accumulated (pause/resume does not reset).
-- History is persisted even if completed tasks are removed from the current list.
-- On app close, running tasks are paused and saved.
+### Completed
+- Base task/timer system
+- Daily history + star markers
+- 6.5h celebration popup with fireworks
+- Custom encouragement file support
+- Random non-duplicate card rewards
+- Interactive card library (masonry layout + preview)
+- Per-task memo editor and persistence
+- Step-goal motivation (`2h / 5h / 6.5h`)
+
+### In Progress / Next
+- Optional sound effects toggle
+- More configurable milestone rewards
+- Optional privacy presets for local-only data handling

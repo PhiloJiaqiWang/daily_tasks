@@ -11,6 +11,8 @@ import uuid
 
 APP_NAME = "Planner"
 DAILY_GOAL_SECONDS = int(6.5 * 3600)
+START_SUCCESS_SECONDS = 2 * 3600
+MID_GOAL_SECONDS = 5 * 3600
 
 
 def get_data_dir() -> Path:
@@ -73,6 +75,7 @@ class FloatingTaskWidget:
         self.show_completed = True
         self.goal_reached_today = False
         self.last_goal_date = datetime.now().strftime("%Y-%m-%d")
+        self.milestones_reached_today: set[str] = set()
         self.celebration_window: tk.Toplevel | None = None
         self.firework_canvas: tk.Canvas | None = None
         self.firework_job: str | None = None
@@ -151,7 +154,7 @@ class FloatingTaskWidget:
 
         self.goal_message_label = tk.Label(
             container,
-            text="Keep going. Goal is 6.5 hours today.",
+            text="Step goals: 2h start success, 5h strong progress, 6.5h full goal.",
             bg=self.bg,
             fg=self.muted,
             font=("TkDefaultFont", 10, "italic"),
@@ -565,8 +568,9 @@ class FloatingTaskWidget:
         if today_key != self.last_goal_date:
             self.last_goal_date = today_key
             self.goal_reached_today = False
+            self.milestones_reached_today = set()
             self.goal_message_label.config(
-                text="Keep going. Goal is 6.5 hours today.",
+                text="Step goals: 2h start success, 5h strong progress, 6.5h full goal.",
                 fg=self.muted,
             )
             self.today_progress_label.config(fg=self.muted)
@@ -582,19 +586,48 @@ class FloatingTaskWidget:
             self.total_time_label.config(fg="#2f7d4f")
             if not self.goal_reached_today:
                 self.goal_reached_today = True
+                self.milestones_reached_today.add("2h")
+                self.milestones_reached_today.add("5h")
                 message = random.choice(self.encouragements) if self.encouragements else "Great work today."
                 self.goal_message_label.config(text=f"Goal reached: {message}", fg="#2f7d4f")
                 reward_text = self.award_daily_card(today_key)
                 self.open_celebration_window(message, reward_text)
+            else:
+                self.goal_message_label.config(text="Full goal reached. Enjoy your reward.", fg="#2f7d4f")
+        elif today_seconds >= MID_GOAL_SECONDS:
+            self.today_progress_label.config(fg="#3a6ea5")
+            self.total_time_label.config(fg="#3a6ea5")
+            if "2h" not in self.milestones_reached_today:
+                self.milestones_reached_today.add("2h")
+            if "5h" not in self.milestones_reached_today:
+                self.milestones_reached_today.add("5h")
+                self.goal_message_label.config(text="Strong progress unlocked at 5h. You are on fire.", fg="#3a6ea5")
+            else:
+                remaining = DAILY_GOAL_SECONDS - today_seconds
+                self.goal_message_label.config(
+                    text=f"Great momentum: {self.format_seconds(remaining)} left to full goal.",
+                    fg="#3a6ea5",
+                )
+        elif today_seconds >= START_SUCCESS_SECONDS:
+            self.today_progress_label.config(fg="#8a6d3b")
+            self.total_time_label.config(fg="#8a6d3b")
+            if "2h" not in self.milestones_reached_today:
+                self.milestones_reached_today.add("2h")
+                self.goal_message_label.config(text="Startup success unlocked at 2h. Nice beginning.", fg="#8a6d3b")
+            else:
+                remaining = MID_GOAL_SECONDS - today_seconds
+                self.goal_message_label.config(
+                    text=f"Startup success achieved. {self.format_seconds(remaining)} to reach 5h.",
+                    fg="#8a6d3b",
+                )
         else:
             self.today_progress_label.config(fg=self.muted)
             self.total_time_label.config(fg=self.text)
-            if not self.goal_reached_today:
-                remaining = DAILY_GOAL_SECONDS - today_seconds
-                self.goal_message_label.config(
-                    text=f"Keep going: {self.format_seconds(remaining)} left to reach 6.5h.",
-                    fg=self.muted,
-                )
+            remaining = START_SUCCESS_SECONDS - today_seconds
+            self.goal_message_label.config(
+                text=f"First step: {self.format_seconds(remaining)} left to unlock startup success (2h).",
+                fg=self.muted,
+            )
 
     def open_celebration_window(self, message: str, reward_text: str) -> None:
         if self.celebration_window is not None and self.celebration_window.winfo_exists():
